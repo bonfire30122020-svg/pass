@@ -66,6 +66,11 @@ select{width:100%;height:50px;padding:0 12px;border:2px solid var(--bd);border-r
 .cred{margin-top:14px;padding:14px;border-radius:16px;background:#f2fcf6;border:2px solid var(--ok);animation:pop .35s both;font-size:14px}.cred code{font:600 15px ui-monospace,Menlo,monospace;background:#fff;padding:2px 8px;border-radius:8px;border:1px solid var(--bd)}.cred div{margin:6px 0}
 .sec{display:flex;align-items:center;gap:8px;margin:20px 4px 10px;font-size:17px}.sec .chip{margin:0}
 @media(max-width:420px){.tabs button{font-size:10px}.tabs i{font-size:19px}}
+.pcard{background:#fff;border:1px solid var(--bd);border-left:5px solid #e6d6c2;border-radius:18px;padding:14px;margin-bottom:12px;box-shadow:0 12px 26px -20px #b5179e;animation:up .4s both}.pcard.in{border-left-color:var(--ok)}
+.ph{display:flex;align-items:center;gap:12px}.ph .nm{flex:1;min-width:0;font-weight:700;font-size:16px;line-height:1.3;word-break:break-word}.ph .st{flex:none}
+.dg{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;margin:14px 0 4px;font-size:13px}.dg span{color:var(--mut)}.dg b{text-align:right;font-weight:600;word-break:break-word}
+.pcard .acts{margin-top:12px}.pcard .acts button{flex:1}
+.fl{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto}.fc{min-height:38px;padding:0 16px;font-size:13px;background:#fff;color:var(--ink);border:2px solid var(--bd);box-shadow:none;white-space:nowrap}.fc.on{background:var(--grad);color:#fff;border-color:transparent}
 .hide{display:none!important}
 @media (prefers-reduced-motion:reduce){*,::before{animation:none!important;transition:none!important}}
 </style></head><body>
@@ -92,7 +97,10 @@ select{width:100%;height:50px;padding:0 12px;border:2px solid var(--bd);border-r
     <button class="full" id="issueBtn">Issue pass</button><div class="msg" id="imsg"></div>
     <button class="g hide full" id="dlBtn" style="margin-top:6px">Download pass (PDF)</button></section>
 
-  <section id="vPasses" class="view hide"><div id="stats"></div><div id="plist"></div></section>
+  <section id="vPasses" class="view hide">
+    <div class="card" style="padding:14px"><input type="text" id="pq" placeholder="Search name, phone or pass no." autocomplete="off"></div>
+    <div class="fl" id="pfl"><button class="fc on" data-f="all">All</button><button class="fc" data-f="out">Not used</button><button class="fc" data-f="in">Entered</button></div>
+    <div id="stats"></div><div id="plist"></div></section>
 
   <section id="vScan" class="view hide"><div class="card"><h2>Scan a pass</h2><p class="s">Point the camera at the QR, or use a handheld scanner.</p>
     <video id="vid" playsinline muted class="hide"></video><canvas id="cv" class="hide"></canvas><div class="msg er" id="cmsg"></div>
@@ -263,16 +271,24 @@ async function download(tk,rec){
   d.save("bonfire-pass-"+rec.name.replace(/[^\w]+/g,"-").toLowerCase()+(sc?"-verified":"")+".pdf");
 }
 let subs=[];function unsub(){subs.forEach(f=>f());subs=[]}
+let drawP=null,pFil="all";
 function renderPasses(){
   unsub();const u=sess(),b=$("plist");let P={},Sc={};b.innerHTML='<div class="empty">Loading...</div>';
-  const draw=()=>{
-    const ps=Object.entries(P).map(([id,v])=>({id,...v})).filter(p=>u.admin||p.issuedById===u.id).sort((x,y)=>y.issuedAt.localeCompare(x.issuedAt));window._ps=ps;
-    const n=ps.filter(p=>Sc[p.id]).length;
-    $("stats").innerHTML=`<span class="chip">Issued ${ps.length}</span><span class="chip m">Entered ${n}</span><span class="chip">Live</span>`;
-    b.innerHTML=ps.length?ps.map((p,i)=>`<div class="pc"><div class="av">${esc([...p.name][0].toUpperCase())}</div><div class="pi"><b>${esc(p.name)}</b><small>${esc(fmt(p.issuedAt))} | by ${esc(p.issuedById===ADMIN.id?"Admin":p.issuedBy)}${Sc[p.id]?"<br>Verified by "+esc(Sc[p.id].by||"staff"):""}</small></div><span class="st ${Sc[p.id]?"u":""}">${Sc[p.id]?"Entered "+esc(fmt(Sc[p.id].at)):"Not used"}</span><button class="g sm" data-i="${i}">PDF</button>${u.admin?`<button class="d sm" data-d="${esc(p.id)}">Delete</button>`:""}</div>`).join(""):'<div class="empty">No passes yet.</div>'};
+  drawP=()=>{
+    const q=$("pq").value.trim().toLowerCase();
+    const mine=Object.entries(P).map(([id,v])=>({id,...v})).filter(p=>u.admin||p.issuedById===u.id).sort((x,y)=>y.issuedAt.localeCompare(x.issuedAt));
+    const n=mine.filter(p=>Sc[p.id]).length;
+    $("stats").innerHTML=`<span class="chip">Issued ${mine.length}</span><span class="chip m">Entered ${n}</span><span class="chip">Not used ${mine.length-n}</span><span class="chip">Live</span>`;
+    const hit=p=>!q||[p.name,p.phone,p.id.slice(-6),p.issuedBy,(Sc[p.id]||{}).by].some(v=>String(v||"").toLowerCase().includes(q));
+    const ps=mine.filter(p=>hit(p)&&(pFil==="all"||(pFil==="in")===!!Sc[p.id]));window._ps=ps;
+    const by=p=>p.issuedById===ADMIN.id?"Admin":p.issuedBy,kv=(k,v)=>`<span>${k}</span><b>${esc(v)}</b>`;
+    b.innerHTML=ps.length?ps.slice(0,200).map((p,i)=>{const e=Sc[p.id];return `<div class="pcard ${e?"in":""}"><div class="ph"><div class="av">${esc([...p.name][0].toUpperCase())}</div><div class="nm">${esc(p.name)}</div><span class="st ${e?"u":""}">${e?"Entered":"Not used"}</span></div>
+      <div class="dg">${kv("Phone",p.phone||"-")}${kv("Issued",fmt(p.issuedAt))}${kv("Issued by",by(p))}${e?kv("Entered at",fmt(e.at))+kv("Verified by",e.by||"staff"):""}${kv("Pass no.",p.id.slice(-6))}</div>
+      <div class="acts"><button class="g sm" data-i="${i}">Download PDF</button>${u.admin?`<button class="d sm" data-d="${esc(p.id)}">Delete</button>`:""}</div></div>`}).join("")+(ps.length>200?'<div class="empty">Showing first 200. Use search to narrow down.</div>':""):`<div class="empty">${q||pFil!=="all"?"No match.":"No passes yet."}</div>`;
+  };
   const bad=e=>{b.innerHTML='<div class="empty er">'+esc(why(e))+'</div>'};
-  subs.push(onValue(ref(db,"passes"),x=>{P=x.val()||{};draw()},bad));
-  subs.push(onValue(ref(db,"scans"),x=>{Sc=x.val()||{};draw()},bad));
+  subs.push(onValue(ref(db,"passes"),x=>{P=x.val()||{};drawP()},bad));
+  subs.push(onValue(ref(db,"scans"),x=>{Sc=x.val()||{};drawP()},bad));
 }
 
 /* scan */
@@ -444,7 +460,8 @@ $("plist").onclick=async e=>{
     try{await store.del("passes",id);await store.del("scans",id)}catch(err){alert("Could not delete. "+why(err))}return}
   const b=e.target.closest("button[data-i]");if(b){const p=window._ps[+b.dataset.i];download(p.id,p)}};
 $("camBtn").onclick=startCam;$("photoBtn").onclick=()=>$("photo").click();$("photo").onchange=e=>scanPhoto(e.target.files[0]);$("verBtn").onclick=()=>verify($("manual").value);$("manual").addEventListener("keydown",e=>{if(e.key==="Enter")verify($("manual").value)});
-$("eq").oninput=()=>drawE&&drawE();$("addUser").onclick=addUser;$("hAv").onclick=()=>tab("Profile");$("changePhoto").onclick=()=>$("photoUp").click();$("photoUp").onchange=e=>uploadPhoto(e.target.files[0]);$("saveProf").onclick=saveProfile;$("savePw").onclick=changePw;
+$("eq").oninput=()=>drawE&&drawE();$("pq").oninput=()=>drawP&&drawP();
+$("pfl").onclick=e=>{const b=e.target.closest("button[data-f]");if(!b)return;pFil=b.dataset.f;document.querySelectorAll("#pfl .fc").forEach(x=>x.classList.toggle("on",x===b));drawP&&drawP()};$("addUser").onclick=addUser;$("hAv").onclick=()=>tab("Profile");$("changePhoto").onclick=()=>$("photoUp").click();$("photoUp").onchange=e=>uploadPhoto(e.target.files[0]);$("saveProf").onclick=saveProfile;$("savePw").onclick=changePw;
 $("cred").onclick=async e=>{if(!e.target.closest("#copyCred"))return;try{await navigator.clipboard.writeText(lastCred);e.target.textContent="Copied"}catch(x){prompt("Copy these details:",lastCred)}};$("ulist").onclick=userAct;
 document.querySelectorAll("img.logo").forEach(i=>i.src=LOGO);
 {const l=document.createElement("link");l.rel="icon";l.href=LOGO;document.head.appendChild(l)}
