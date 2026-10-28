@@ -185,28 +185,44 @@ async function issue(){
 function qrCanvas(text){const q=qrcode(0,"M");q.addData(text);q.make();const n=q.getModuleCount(),s=8,c=document.createElement("canvas");c.width=c.height=(n+4)*s;
   const x=c.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,c.width,c.height);x.fillStyle="#000";
   for(let r=0;r<n;r++)for(let k=0;k<n;k++)if(q.isDark(r,k))x.fillRect((k+2)*s,(r+2)*s,s,s);return c}
-async function nameImg(t){
+async function txtImg(t,n,col,h,wt){
   try{await document.fonts.load("700 100px Poppins")}catch(e){}
-  const c=document.createElement("canvas");c.width=1400;c.height=170;const x=c.getContext("2d"),f=n=>`700 ${n}px Poppins,"Noto Sans Bengali","Nirmala UI","Segoe UI",sans-serif`;
-  let n=110;x.font=f(n);while(x.measureText(t).width>1340&&n>40){n-=4;x.font=f(n)}
-  x.fillStyle="#2a1810";x.textAlign="center";x.textBaseline="middle";x.fillText(t,700,88);return c.toDataURL("image/png")}
+  const c=document.createElement("canvas");c.width=1400;c.height=h;const x=c.getContext("2d"),f=k=>`${wt} ${k}px Poppins,"Noto Sans Bengali","Nirmala UI","Segoe UI",sans-serif`;
+  x.font=f(n);while(x.measureText(t).width>1340&&n>24){n-=3;x.font=f(n)}
+  x.fillStyle=col;x.textAlign="center";x.textBaseline="middle";x.fillText(t,700,h/2+2);return c.toDataURL("image/png")}
+async function stampImg(sc){
+  try{await document.fonts.load("700 100px Poppins")}catch(e){}
+  const c=document.createElement("canvas");c.width=1440;c.height=340;const x=c.getContext("2d"),G="#1f9d55",F=(w,n)=>`${w} ${n}px Poppins,"Noto Sans Bengali","Nirmala UI","Segoe UI",sans-serif`;
+  const rr=(a,b,w,h,r)=>{x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath()};
+  x.translate(720,170);x.rotate(-.05);x.translate(-720,-170);
+  x.strokeStyle=G;x.fillStyle=G;x.textAlign="center";x.textBaseline="middle";
+  x.lineWidth=12;rr(40,24,1360,292,36);x.stroke();x.lineWidth=4;rr(62,46,1316,248,26);x.stroke();
+  x.font=F(700,112);x.fillText("V E R I F I E D",720,108);
+  const line=(t,y)=>{let n=58;x.font=F(600,n);while(x.measureText(t).width>1240&&n>26){n-=3;x.font=F(600,n)}x.fillText(t,720,y)};
+  line(fmt(sc.at),188);line("Verified by "+(sc.by||"staff"),250);
+  return c.toDataURL("image/png")}
 async function download(tk,rec){
+  let sc=null;
+  try{sc=await store.get("scans",tk)}catch(e){if(!confirm("Cannot check verification status (offline). Download anyway?"))return}
   const {jsPDF}=window.jspdf,d=new jsPDF({unit:"mm",format:[105,148]});
   d.setFillColor(255,246,233);d.rect(0,0,105,148,"F");
   const a=[255,182,39],b=[181,23,158];
   for(let i=0;i<56;i++){const t=i/55;d.setFillColor(...a.map((v,k)=>Math.round(v+(b[k]-v)*t)));d.rect(0,i*.9,105,1,"F")}
   d.setFillColor(255,255,255);d.roundedRect(8,14,89,127,5,5,"F");
-  const lw=36,lh=lw*LH/LW;d.addImage(LOGO,"PNG",52.5-lw/2,17,lw,lh);
-  let y=17+lh+6;d.setFont("helvetica","bold");d.setFontSize(11);d.setTextColor(181,23,158);d.text("ENTRY PASS",52.5,y,{align:"center",charSpace:1.6});
-  d.addImage(await nameImg(rec.name),"PNG",13.5,y+3,78,78*170/1400);
-  y+=3+9.5+6;d.setFont("helvetica","normal");d.setFontSize(9);d.setTextColor(138,111,95);d.text("Issued "+fmt(rec.issuedAt),52.5,y,{align:"center"});
-  y+=6;d.setDrawColor(235,200,165);d.setLineWidth(.4);d.setLineDashPattern([1.6,1.6],0);d.line(14,y,91,y);d.setLineDashPattern([],0);
+  const lw=29,lh=lw*LH/LW;d.addImage(LOGO,"PNG",52.5-lw/2,16,lw,lh);
+  let y=16+lh+5.5;d.setFont("helvetica","bold");d.setFontSize(11);d.setTextColor(181,23,158);d.text("ENTRY PASS",52.5,y,{align:"center",charSpace:1.6});
+  d.addImage(await txtImg(rec.name,110,"#2a1810",170,"700"),"PNG",13.5,y+2,78,78*170/1400);
+  y+=2+9.5+1;const by=rec.issuedById===ADMIN.id?"Admin":rec.issuedBy;
+  d.addImage(await txtImg("Issued by "+by+"  |  "+fmt(rec.issuedAt),50,"#8a6f5f",100,"500"),"PNG",13.5,y,78,78*100/1400);
+  y+=5.6+3;d.setDrawColor(235,200,165);d.setLineWidth(.4);d.setLineDashPattern([1.6,1.6],0);d.line(14,y,91,y);d.setLineDashPattern([],0);
   d.setFillColor(255,246,233);d.circle(8,y,3.4,"F");d.circle(97,y,3.4,"F");
-  y+=6;d.addImage(qrCanvas(tk).toDataURL("image/png"),"PNG",32.5,y,40,40);
-  d.setDrawColor(247,147,30);d.setLineWidth(.8);d.roundedRect(30.5,y-2,44,44,3,3,"S");
-  d.setFontSize(8);d.text("Pass no. "+tk.slice(-6),52.5,y+49,{align:"center"});
+  y+=4.5;d.addImage(qrCanvas(tk).toDataURL("image/png"),"PNG",34.5,y,36,36);
+  if(sc)d.setDrawColor(31,157,85);else d.setDrawColor(247,147,30);
+  d.setLineWidth(.8);d.roundedRect(32.5,y-2,40,40,3,3,"S");
+  y+=42.5;d.setFont("helvetica","normal");d.setFontSize(8);d.setTextColor(138,111,95);d.text("Pass no. "+tk.slice(-6),52.5,y,{align:"center"});
+  if(sc)d.addImage(await stampImg(sc),"PNG",16.5,y+2.2,72,72*340/1440);else d.text("Show this pass at the gate for verification",52.5,y+7,{align:"center"});
   d.setFillColor(181,23,158);d.rect(0,141,105,7,"F");d.setTextColor(255,255,255);d.setFontSize(7);d.text("NON-TRANSFERABLE  |  VERIFIED AT THE GATE ONLY",52.5,145.4,{align:"center"});
-  d.save("bonfire-pass-"+rec.name.replace(/[^\w]+/g,"-").toLowerCase()+".pdf");
+  d.save("bonfire-pass-"+rec.name.replace(/[^\w]+/g,"-").toLowerCase()+(sc?"-verified":"")+".pdf");
 }
 let subs=[];function unsub(){subs.forEach(f=>f());subs=[]}
 function renderPasses(){
@@ -215,7 +231,7 @@ function renderPasses(){
     const ps=Object.entries(P).map(([id,v])=>({id,...v})).filter(p=>u.admin||p.issuedById===u.id).sort((x,y)=>y.issuedAt.localeCompare(x.issuedAt));window._ps=ps;
     const n=ps.filter(p=>Sc[p.id]).length;
     $("stats").innerHTML=`<span class="chip">Issued ${ps.length}</span><span class="chip m">Entered ${n}</span><span class="chip">Live</span>`;
-    b.innerHTML=ps.length?ps.map((p,i)=>`<div class="pc"><div class="av">${esc([...p.name][0].toUpperCase())}</div><div class="pi"><b>${esc(p.name)}</b><small>${esc(fmt(p.issuedAt))}</small></div><span class="st ${Sc[p.id]?"u":""}">${Sc[p.id]?"Entered "+esc(fmt(Sc[p.id].at)):"Not used"}</span><button class="g sm" data-i="${i}">PDF</button>${u.admin?`<button class="d sm" data-d="${esc(p.id)}">Delete</button>`:""}</div>`).join(""):'<div class="empty">No passes yet.</div>'};
+    b.innerHTML=ps.length?ps.map((p,i)=>`<div class="pc"><div class="av">${esc([...p.name][0].toUpperCase())}</div><div class="pi"><b>${esc(p.name)}</b><small>${esc(fmt(p.issuedAt))} | by ${esc(p.issuedById===ADMIN.id?"Admin":p.issuedBy)}${Sc[p.id]?"<br>Verified by "+esc(Sc[p.id].by||"staff"):""}</small></div><span class="st ${Sc[p.id]?"u":""}">${Sc[p.id]?"Entered "+esc(fmt(Sc[p.id].at)):"Not used"}</span><button class="g sm" data-i="${i}">PDF</button>${u.admin?`<button class="d sm" data-d="${esc(p.id)}">Delete</button>`:""}</div>`).join(""):'<div class="empty">No passes yet.</div>'};
   const bad=e=>{b.innerHTML='<div class="empty er">'+esc(why(e))+'</div>'};
   subs.push(onValue(ref(db,"passes"),x=>{P=x.val()||{};draw()},bad));
   subs.push(onValue(ref(db,"scans"),x=>{Sc=x.val()||{};draw()},bad));
@@ -264,7 +280,7 @@ async function verify(code){
     if(!p){box("bad","<strong class='er'>INVALID PASS</strong>");return}
     const rr=await store.claim(code,{at:new Date().toISOString(),by:u.name,byId:u.id}),s=rr.val,dup=!rr.first;
     const f=(k,v)=>`<dt>${k}</dt><dd>${esc(v)}</dd>`;
-    box(dup?"bad":"okk",(dup?`<strong class="er">ALREADY USED at ${esc(fmt(s.at))}</strong>`:`<strong class="ok">VALID. Entry registered ${esc(fmt(s.at))}</strong>`)+
+    box(dup?"bad":"okk",(dup?`<strong class="er">ALREADY USED at ${esc(fmt(s.at))} by ${esc(s.by||"")}</strong>`:`<strong class="ok">VALID. Entry registered ${esc(fmt(s.at))}</strong>`)+
       "<dl style='margin:0'>"+f("Name",p.name)+f("Date of birth",p.dob)+f("Phone",p.phone)+f("Issued by",p.issuedBy)+f("Issued on",fmt(p.issuedAt))+"</dl>"+
       `<button style="margin-top:12px" id="nextBtn">Scan next</button>`);
     $("nextBtn").onclick=()=>{out.innerHTML="";startCam()};
