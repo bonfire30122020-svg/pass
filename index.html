@@ -64,6 +64,8 @@ select{width:100%;height:50px;padding:0 12px;border:2px solid var(--bd);border-r
 .kv{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px dashed var(--bd);font-size:14px}.kv span{color:var(--mut)}.kv b{text-align:right;word-break:break-all}
 .note{background:#fff4e0;border:2px solid #ffd9a0;color:#8a4b00;border-radius:16px;padding:12px 14px;margin-bottom:14px;font-size:13px;font-weight:500;animation:pop .35s both}
 .cred{margin-top:14px;padding:14px;border-radius:16px;background:#f2fcf6;border:2px solid var(--ok);animation:pop .35s both;font-size:14px}.cred code{font:600 15px ui-monospace,Menlo,monospace;background:#fff;padding:2px 8px;border-radius:8px;border:1px solid var(--bd)}.cred div{margin:6px 0}
+.sec{display:flex;align-items:center;gap:8px;margin:20px 4px 10px;font-size:17px}.sec .chip{margin:0}
+@media(max-width:420px){.tabs button{font-size:10px}.tabs i{font-size:19px}}
 .hide{display:none!important}
 @media (prefers-reduced-motion:reduce){*,::before{animation:none!important;transition:none!important}}
 </style></head><body>
@@ -105,6 +107,12 @@ select{width:100%;height:50px;padding:0 12px;border:2px solid var(--bd);border-r
       <div class="ck"><label><input type="checkbox" id="nIssue" checked> Can issue passes</label><label><input type="checkbox" id="nScan"> Can scan passes</label></div>
       <button class="full" id="addUser">Create login</button><div class="msg" id="umsg"></div><div class="cred hide" id="cred"></div></div>
     <div id="ulist"></div>
+  </section>
+  <section id="vEntries" class="view hide">
+    <div class="card" style="padding:14px"><input type="text" id="eq" placeholder="Search name, phone or pass no." autocomplete="off"></div>
+    <div id="eStats"></div>
+    <h2 class="sec">Entered <span class="chip" id="cEn">0</span></h2><div id="eIn"></div>
+    <h2 class="sec">Not yet entered <span class="chip m" id="cNo">0</span></h2><div id="eOut"></div>
   </section>
   <section id="vProfile" class="view hide">
     <div class="note hide" id="must">Your password is still your phone number. Set a new password below to keep your account safe.</div>
@@ -185,16 +193,16 @@ function show(){
   if(!u)return;
   $("hello").textContent=u.name;
   $("perm").textContent=u.admin?"Admin":[u.issue&&"Issue",u.scan&&"Scan"].filter(Boolean).join(" + ");
-  const t=[u.issue&&["Issue","🎫","Issue"],u.issue&&["Passes","📋","Passes"],u.scan&&["Scan","📷","Scan"],u.admin&&["Users","👥","Access"],["Profile","👤","Profile"]].filter(Boolean);
+  const t=[u.issue&&["Issue","🎫","Issue"],u.issue&&["Passes","📋","Passes"],u.scan&&["Scan","📷","Scan"],["Entries","✅","Entries"],u.admin&&["Users","👥","Access"],["Profile","👤","Profile"]].filter(Boolean);
   $("tabs").innerHTML=t.map(x=>`<button data-t="${x[0]}"><i>${x[1]}</i><span>${x[2]}</span></button>`).join("");
   setAv(null);store.get("profiles",u.id).then(p=>p&&setAv(p.photo)).catch(()=>{});tab(u.must?"Profile":(t[0]?t[0][0]:""));
 }
 function tab(t){
   const u=sess();if(!u)return;
-  const ok={Issue:u.issue,Passes:u.issue,Scan:u.scan,Users:u.admin,Profile:1};if(!ok[t])t="";
-  ["Issue","Passes","Scan","Users","Profile"].forEach(n=>$("v"+n).classList.toggle("hide",n!==t));
+  const ok={Issue:u.issue,Passes:u.issue,Scan:u.scan,Users:u.admin,Profile:1,Entries:1};if(!ok[t])t="";
+  ["Issue","Passes","Scan","Entries","Users","Profile"].forEach(n=>$("v"+n).classList.toggle("hide",n!==t));
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.t===t));
-  if(t!=="Scan")stopCam();unsub();if(t==="Passes")renderPasses();if(t==="Users")renderUsers();if(t==="Profile")loadProfile();
+  if(t!=="Scan")stopCam();unsub();if(t==="Passes")renderPasses();if(t==="Users")renderUsers();if(t==="Profile")loadProfile();if(t==="Entries")renderEntries();
 }
 
 /* issue + pdf */
@@ -318,6 +326,28 @@ async function verify(code){
   finally{busy=false}
 }
 
+/* entry list */
+let drawE=null;
+function renderEntries(){
+  unsub();const u=sess(),bi=$("eIn"),bo=$("eOut");let P={},Sc={};bi.innerHTML=bo.innerHTML='<div class="empty">Loading...</div>';
+  const all=u.admin||u.scan,CAP=300;
+  drawE=()=>{
+    const q=$("eq").value.trim().toLowerCase();
+    const ps=Object.entries(P).map(([id,v])=>({id,...v})).filter(p=>all||p.issuedById===u.id);
+    const hit=p=>!q||[p.name,p.phone,p.id.slice(-6),p.issuedBy,(Sc[p.id]||{}).by].some(v=>String(v||"").toLowerCase().includes(q));
+    const inn=ps.filter(p=>Sc[p.id]&&hit(p)).sort((a,b)=>Sc[b.id].at.localeCompare(Sc[a.id].at));
+    const out=ps.filter(p=>!Sc[p.id]&&hit(p)).sort((a,b)=>a.name.localeCompare(b.name));
+    const en=ps.filter(p=>Sc[p.id]).length;
+    $("eStats").innerHTML=`<span class="chip">Total ${ps.length}</span><span class="chip m">Entered ${en}</span><span class="chip">Remaining ${ps.length-en}</span><span class="chip">Live</span>`;
+    $("cEn").textContent=inn.length;$("cNo").textContent=out.length;
+    const row=(p,e)=>`<div class="pc"><div class="av">${esc([...p.name][0].toUpperCase())}</div><div class="pi"><b>${esc(p.name)}</b><small>${e?"Entered "+esc(fmt(Sc[p.id].at))+" | verified by "+esc(Sc[p.id].by||"staff"):"Issued "+esc(fmt(p.issuedAt))+" | by "+esc(p.issuedById===ADMIN.id?"Admin":p.issuedBy)}</small></div><span class="st ${e?"u":""}">${e?"Entered":"Waiting"}</span></div>`;
+    const list=(a,e,none)=>a.length?a.slice(0,CAP).map(p=>row(p,e)).join("")+(a.length>CAP?`<div class="empty">Showing first ${CAP}. Use search to narrow down.</div>`:""):`<div class="empty">${q?"No match.":ps.length?none:"No passes issued yet."}</div>`;
+    bi.innerHTML=list(inn,1,"Nobody has entered yet.");bo.innerHTML=list(out,0,"Everyone has entered.");
+  };
+  const bad=e=>{bi.innerHTML=bo.innerHTML='<div class="empty er">'+esc(why(e))+'</div>'};
+  subs.push(onValue(ref(db,"passes"),x=>{P=x.val()||{};drawE()},bad));
+  subs.push(onValue(ref(db,"scans"),x=>{Sc=x.val()||{};drawE()},bad));
+}
 /* profile */
 function setAv(ph){const nm=(sess()||{}).name||"?";for(const id of ["hAv","prAv"]){const el=$(id);el.textContent="";
   if(ph&&/^data:image\/jpeg;base64,[A-Za-z0-9+\/=]+$/.test(ph)){const im=document.createElement("img");im.alt="";im.src=ph;el.appendChild(im)}else el.textContent=[...nm][0].toUpperCase()}}
@@ -414,7 +444,7 @@ $("plist").onclick=async e=>{
     try{await store.del("passes",id);await store.del("scans",id)}catch(err){alert("Could not delete. "+why(err))}return}
   const b=e.target.closest("button[data-i]");if(b){const p=window._ps[+b.dataset.i];download(p.id,p)}};
 $("camBtn").onclick=startCam;$("photoBtn").onclick=()=>$("photo").click();$("photo").onchange=e=>scanPhoto(e.target.files[0]);$("verBtn").onclick=()=>verify($("manual").value);$("manual").addEventListener("keydown",e=>{if(e.key==="Enter")verify($("manual").value)});
-$("addUser").onclick=addUser;$("hAv").onclick=()=>tab("Profile");$("changePhoto").onclick=()=>$("photoUp").click();$("photoUp").onchange=e=>uploadPhoto(e.target.files[0]);$("saveProf").onclick=saveProfile;$("savePw").onclick=changePw;
+$("eq").oninput=()=>drawE&&drawE();$("addUser").onclick=addUser;$("hAv").onclick=()=>tab("Profile");$("changePhoto").onclick=()=>$("photoUp").click();$("photoUp").onchange=e=>uploadPhoto(e.target.files[0]);$("saveProf").onclick=saveProfile;$("savePw").onclick=changePw;
 $("cred").onclick=async e=>{if(!e.target.closest("#copyCred"))return;try{await navigator.clipboard.writeText(lastCred);e.target.textContent="Copied"}catch(x){prompt("Copy these details:",lastCred)}};$("ulist").onclick=userAct;
 document.querySelectorAll("img.logo").forEach(i=>i.src=LOGO);
 {const l=document.createElement("link");l.rel="icon";l.href=LOGO;document.head.appendChild(l)}
