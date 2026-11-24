@@ -71,6 +71,14 @@ select{width:100%;height:50px;padding:0 12px;border:2px solid var(--bd);border-r
 .dg{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;margin:14px 0 4px;font-size:13px}.dg span{color:var(--mut)}.dg b{text-align:right;font-weight:600;word-break:break-word}
 .pcard .acts{margin-top:12px}.pcard .acts button{flex:1}
 .fl{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto}.fc{min-height:38px;padding:0 16px;font-size:13px;background:#fff;color:var(--ink);border:2px solid var(--bd);box-shadow:none;white-space:nowrap}.fc.on{background:var(--grad);color:#fff;border-color:transparent}
+.scanbox{position:relative;border-radius:20px;overflow:hidden;background:#000;margin-top:6px;aspect-ratio:3/4;max-height:62vh;width:100%}
+.scanbox video{width:100%;height:100%;object-fit:cover;border-radius:0;max-height:none;margin:0;display:block}
+.frame{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+.frame::before{content:"";width:64%;aspect-ratio:1;border-radius:20px;box-shadow:0 0 0 999px #0007;border:3px solid #ffffffaa;transition:border-color .2s}
+.frame i{position:absolute;left:18%;right:18%;height:3px;border-radius:3px;background:linear-gradient(90deg,transparent,#ffb627,transparent);animation:laser 2s ease-in-out infinite}
+@keyframes laser{0%,100%{top:30%}50%{top:70%}}
+.scanbox.ok .frame::before{border-color:#3ddc84}.scanbox.ok .frame i{display:none}
+.hint{position:absolute;left:0;right:0;bottom:12px;text-align:center;color:#fff;font-size:13px;font-weight:600;text-shadow:0 1px 6px #000}
 .hide{display:none!important}
 @media (prefers-reduced-motion:reduce){*,::before{animation:none!important;transition:none!important}}
 </style></head><body>
@@ -103,22 +111,26 @@ select{width:100%;height:50px;padding:0 12px;border:2px solid var(--bd);border-r
     <div id="stats"></div><div id="plist"></div></section>
 
   <section id="vScan" class="view hide"><div class="card"><h2>Scan a pass</h2><p class="s">Point the camera at the QR, or use a handheld scanner.</p>
-    <video id="vid" playsinline muted class="hide"></video><canvas id="cv" class="hide"></canvas><div class="msg er" id="cmsg"></div>
+    <div id="scanbox" class="scanbox hide"><video id="vid" playsinline muted autoplay></video><div class="frame"><i></i></div><div class="hint" id="hint"></div></div><canvas id="cv" class="hide"></canvas><div class="msg er" id="cmsg"></div>
     <label for="manual">SCANNER DEVICE OR MANUAL CODE</label><input type="text" id="manual" autocomplete="off" autocapitalize="characters">
-    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button id="camBtn">Start camera</button><button class="g" id="photoBtn">Scan using phone camera app</button><button class="g" id="verBtn">Verify code</button></div><input type="file" id="photo" accept="image/*" capture="environment" class="hide">
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button id="camBtn">Start camera</button><button class="g hide" id="torchBtn">Torch on</button><button class="g" id="photoBtn">Scan using phone camera app</button><button class="g" id="verBtn">Verify code</button></div><input type="file" id="photo" accept="image/*" capture="environment" class="hide">
     <div id="result"></div></div></section>
 
   <section id="vUsers" class="view hide">
     <div class="card"><h2>Create a login</h2><p class="s">A login ID is generated automatically. The password is the person's phone number.</p>
       <label for="nName">FULL NAME</label><input type="text" id="nName" autocomplete="off">
       <label for="nPh">PHONE NUMBER</label><input type="tel" id="nPh" autocomplete="off" inputmode="tel">
-      <div class="ck"><label><input type="checkbox" id="nIssue" checked> Can issue passes</label><label><input type="checkbox" id="nScan"> Can scan passes</label></div>
+      <div class="ck"><label><input type="checkbox" id="nIssue" checked> Can issue passes</label><label><input type="checkbox" id="nScan"> Can scan passes</label><label><input type="checkbox" id="nView"> Can view all passes</label><label><input type="checkbox" id="nExport"> Can export list</label></div>
       <button class="full" id="addUser">Create login</button><div class="msg" id="umsg"></div><div class="cred hide" id="cred"></div></div>
     <div id="ulist"></div>
   </section>
   <section id="vEntries" class="view hide">
     <div class="card" style="padding:14px"><input type="text" id="eq" placeholder="Search name, phone or pass no." autocomplete="off"></div>
     <div id="eStats"></div>
+    <div class="card" id="expBar" style="padding:14px"><div class="s" style="margin:0 0 8px;font-weight:600">Export as PDF</div>
+      <div class="fl" style="margin:0"><button class="fc" data-x="all" id="xAll">All</button><button class="fc" data-x="in" id="xIn">Entered</button><button class="fc" data-x="out" id="xOut">Remaining</button></div>
+      <div class="s" style="margin:12px 0 6px;font-size:12px">Spreadsheet (CSV)</div>
+      <div class="fl" style="margin:0"><button class="fc" data-c="all">All</button><button class="fc" data-c="in">Entered</button><button class="fc" data-c="out">Remaining</button></div></div>
     <h2 class="sec">Entered <span class="chip" id="cEn">0</span></h2><div id="eIn"></div>
     <h2 class="sec">Not yet entered <span class="chip m" id="cNo">0</span></h2><div id="eOut"></div>
   </section>
@@ -190,27 +202,35 @@ async function login(){
   try{
     if(id===ADMIN.id){if(await kdf(pw,ADMIN.salt)===ADMIN.hash)u={id,name:ADMIN.name,issue:1,scan:1,admin:1}}
     else{const key=id.replace(/[^\w-]/g,"").toUpperCase(),r=await store.get("users",key);
-      if(r&&r.active&&await kdf(pw,r.salt)===r.hash)u={id:key,name:r.name,issue:!!r.issue,scan:!!r.scan,admin:0,must:!!r.mustChange};else if(!r)await kdf(pw,"x")}
+      if(r&&r.active&&await kdf(pw,r.salt)===r.hash)u={id:key,name:r.name,issue:!!r.issue,scan:!!r.scan,viewAll:!!r.viewAll,exp:!!r.exp,admin:0,must:!!r.mustChange};else if(!r)await kdf(pw,"x")}
   }catch(e){m.textContent=why(e);$("loginBtn").disabled=false;return}
   $("loginBtn").disabled=false;
   if(!u){fails++;if(fails>=5){lockT=now+60000;fails=0}m.textContent="Invalid ID or password.";return}
   fails=0;$("pw").value="";sess(u);show();
 }
+let permSub=null;
+function paint(u){
+  $("perm").textContent=u.admin?"Admin":[u.issue&&"Issue",u.scan&&"Scan",u.viewAll&&"View all",u.exp&&"Export"].filter(Boolean).join(" + ");
+  const t=[u.issue&&["Issue","🎫","Issue"],(u.issue||u.viewAll)&&["Passes","📋","Passes"],u.scan&&["Scan","📷","Scan"],["Entries","✅","Entries"],u.admin&&["Users","👥","Access"],["Profile","👤","Profile"]].filter(Boolean);
+  $("tabs").innerHTML=t.map(x=>`<button data-t="${x[0]}"><i>${x[1]}</i><span>${x[2]}</span></button>`).join("");return t}
 function show(){
+  if(permSub){permSub();permSub=null}
   const u=sess();$("login").classList.toggle("hide",!!u);$("app").classList.toggle("hide",!u);document.body.classList.toggle("in",!!u);stopCam();unsub();
   if(!u)return;
   $("hello").textContent=u.name;
-  $("perm").textContent=u.admin?"Admin":[u.issue&&"Issue",u.scan&&"Scan"].filter(Boolean).join(" + ");
-  const t=[u.issue&&["Issue","🎫","Issue"],u.issue&&["Passes","📋","Passes"],u.scan&&["Scan","📷","Scan"],["Entries","✅","Entries"],u.admin&&["Users","👥","Access"],["Profile","👤","Profile"]].filter(Boolean);
-  $("tabs").innerHTML=t.map(x=>`<button data-t="${x[0]}"><i>${x[1]}</i><span>${x[2]}</span></button>`).join("");
+  const t=paint(u);
   setAv(null);store.get("profiles",u.id).then(p=>p&&setAv(p.photo)).catch(()=>{});tab(u.must?"Profile":(t[0]?t[0][0]:""));
+  if(!u.admin)permSub=onValue(ref(db,"users/"+u.id),x=>{const r=x.val(),w=sess();if(!r||!w)return;
+    const n={issue:!!r.issue,scan:!!r.scan,viewAll:!!r.viewAll,exp:!!r.exp};if(n.issue===!!w.issue&&n.scan===!!w.scan&&n.viewAll===!!w.viewAll&&n.exp===!!w.exp)return;
+    Object.assign(w,n);sess(w);const tl=paint(w),cur=document.querySelector("#tabs button.on"),c=cur&&cur.dataset.t;
+    tab(tl.some(a=>a[0]===c)?c:(tl[0]?tl[0][0]:""))},()=>{});
 }
 function tab(t){
   const u=sess();if(!u)return;
-  const ok={Issue:u.issue,Passes:u.issue,Scan:u.scan,Users:u.admin,Profile:1,Entries:1};if(!ok[t])t="";
+  const ok={Issue:u.issue,Passes:u.issue||u.viewAll,Scan:u.scan,Users:u.admin,Profile:1,Entries:1};if(!ok[t])t="";
   ["Issue","Passes","Scan","Entries","Users","Profile"].forEach(n=>$("v"+n).classList.toggle("hide",n!==t));
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.t===t));
-  if(t!=="Scan")stopCam();unsub();if(t==="Passes")renderPasses();if(t==="Users")renderUsers();if(t==="Profile")loadProfile();if(t==="Entries")renderEntries();
+  if(t!=="Scan")stopCam();unsub();if(t==="Passes")renderPasses();if(t==="Users")renderUsers();if(t==="Profile")loadProfile();if(t==="Entries")renderEntries();if(t==="Scan")startCam();
 }
 
 /* issue + pdf */
@@ -276,9 +296,9 @@ function renderPasses(){
   unsub();const u=sess(),b=$("plist");let P={},Sc={};b.innerHTML='<div class="empty">Loading...</div>';
   drawP=()=>{
     const q=$("pq").value.trim().toLowerCase();
-    const mine=Object.entries(P).map(([id,v])=>({id,...v})).filter(p=>u.admin||p.issuedById===u.id).sort((x,y)=>y.issuedAt.localeCompare(x.issuedAt));
+    const mine=Object.entries(P).map(([id,v])=>({id,...v})).filter(p=>u.admin||u.viewAll||p.issuedById===u.id).sort((x,y)=>y.issuedAt.localeCompare(x.issuedAt));
     const n=mine.filter(p=>Sc[p.id]).length;
-    $("stats").innerHTML=`<span class="chip">Issued ${mine.length}</span><span class="chip m">Entered ${n}</span><span class="chip">Not used ${mine.length-n}</span><span class="chip">Live</span>`;
+    $("stats").innerHTML=`<span class="chip">Issued ${mine.length}</span><span class="chip m">Entered ${n}</span><span class="chip">Not used ${mine.length-n}</span><span class="chip">${u.admin||u.viewAll?"All passes":"My passes"}</span><span class="chip">Live</span>`;
     const hit=p=>!q||[p.name,p.phone,p.id.slice(-6),p.issuedBy,(Sc[p.id]||{}).by].some(v=>String(v||"").toLowerCase().includes(q));
     const ps=mine.filter(p=>hit(p)&&(pFil==="all"||(pFil==="in")===!!Sc[p.id]));window._ps=ps;
     const by=p=>p.issuedById===ADMIN.id?"Admin":p.issuedBy,kv=(k,v)=>`<span>${k}</span><b>${esc(v)}</b>`;
@@ -292,29 +312,61 @@ function renderPasses(){
 }
 
 /* scan */
-let stream=null,raf=0,busy=false,bd=null;
+let stream=null,raf=0,busy=false,bd=null,paused=false,sid=0,lastT=0,trk=null,torchOn=false,lastCode="",lastCodeT=0,resumeOnShow=false;
 try{if("BarcodeDetector" in window)bd=new BarcodeDetector({formats:["qr_code"]})}catch(e){}
-function stopCam(){cancelAnimationFrame(raf);if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}$("vid").classList.add("hide")}
+function beep(){try{navigator.vibrate&&navigator.vibrate(80)}catch(e){}
+  try{const A=window.AudioContext||window.webkitAudioContext,a=new A(),o=a.createOscillator(),g=a.createGain();o.frequency.value=880;g.gain.value=.08;o.connect(g);g.connect(a.destination);o.start();setTimeout(()=>{o.stop();a.close()},120)}catch(e){}}
+function stopCam(){
+  sid++;cancelAnimationFrame(raf);paused=false;torchOn=false;
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}trk=null;
+  $("scanbox").classList.add("hide");$("scanbox").classList.remove("ok");$("torchBtn").classList.add("hide");$("torchBtn").textContent="Torch on";$("camBtn").textContent="Start camera"}
+function resumeScan(){
+  $("result").innerHTML="";$("scanbox").classList.remove("ok");$("hint").textContent="Point the camera at the QR code";paused=false;
+  if(!stream)startCam()}
+async function toggleTorch(){
+  if(!trk)return;torchOn=!torchOn;
+  try{await trk.applyConstraints({advanced:[{torch:torchOn}]});$("torchBtn").textContent=torchOn?"Torch off":"Torch on"}catch(e){torchOn=!torchOn}}
 async function startCam(){
-  const cm=$("cmsg");cm.textContent="";stopCam();
+  const cm=$("cmsg");cm.textContent="";
+  if(stream){resumeScan();return}
   if(!window.isSecureContext||(location.protocol!=="https:"&&location.hostname!=="localhost")||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){cm.textContent="Live camera is blocked because this page was opened from a file or app, not an https link. Host the file online, or tap \"Scan using phone camera app\" now.";return}
+  const id=++sid;
   try{
-    try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}},audio:false})}
+    try{stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}}})}
     catch(e){if(e.name==="NotAllowedError"||e.name==="SecurityError")throw e;stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false})}
-    const v=$("vid");v.setAttribute("playsinline","");v.muted=true;v.srcObject=stream;v.classList.remove("hide");await v.play();loop();
+    if(id!==sid){stream.getTracks().forEach(t=>t.stop());stream=null;return}
+    trk=stream.getVideoTracks()[0];
+    trk.onended=()=>{if(id===sid){stopCam();cm.textContent="Camera stopped. Tap Start camera to continue."}};
+    try{await trk.applyConstraints({advanced:[{focusMode:"continuous"}]})}catch(e){}
+    let caps={};try{caps=trk.getCapabilities?trk.getCapabilities():{}}catch(e){}
+    $("torchBtn").classList.toggle("hide",!caps.torch);
+    const v=$("vid");v.setAttribute("playsinline","");v.muted=true;v.srcObject=stream;
+    $("scanbox").classList.remove("hide","ok");$("hint").textContent="Point the camera at the QR code";$("camBtn").textContent="Stop camera";paused=false;
+    await v.play();if(id===sid)loop(id);
   }catch(e){stopCam();const n=e&&e.name;cm.textContent=n==="NotAllowedError"?"Camera permission denied. Allow camera for this site in browser settings, then tap Start camera.":n==="NotFoundError"?"No camera found on this device.":n==="NotReadableError"?"Camera is being used by another app. Close it and retry.":"Camera could not start ("+(n||"error")+"). Tap \"Scan using phone camera app\" instead."}
 }
 async function readQR(c){
   try{if(bd){const r=await bd.detect(c);if(r.length)return r[0].rawValue}}catch(e){}
   const d=c.getContext("2d",{willReadFrequently:true}).getImageData(0,0,c.width,c.height),r=jsQR(d.data,c.width,c.height,{inversionAttempts:"dontInvert"});return r&&r.data}
-async function loop(){
-  if(!stream)return;const v=$("vid"),c=$("cv");
-  if(v.readyState>=2&&v.videoWidth&&!busy){
-    const sc=Math.min(1,720/v.videoWidth);c.width=Math.round(v.videoWidth*sc);c.height=Math.round(v.videoHeight*sc);
-    c.getContext("2d",{willReadFrequently:true}).drawImage(v,0,0,c.width,c.height);
-    const t=await readQR(c);if(t&&stream){stopCam();verify(t);return}
+async function scanFrame(v){
+  if(bd){try{const r=await bd.detect(v);return r.length?r[0].rawValue:null}catch(e){bd=null}}
+  const c=$("cv"),k=Math.min(v.videoWidth,v.videoHeight),side=Math.round(k*.8),out=Math.min(480,side);
+  c.width=c.height=out;const x=c.getContext("2d",{willReadFrequently:true});
+  x.drawImage(v,(v.videoWidth-side)/2,(v.videoHeight-side)/2,side,side,0,0,out,out);
+  const d=x.getImageData(0,0,out,out),r=jsQR(d.data,out,out,{inversionAttempts:"dontInvert"});return r&&r.data}
+async function loop(id){
+  if(id!==sid||!stream)return;
+  const v=$("vid"),now=performance.now();
+  if(!paused&&!busy&&v.readyState>=2&&v.videoWidth&&now-lastT>110){
+    lastT=now;let t=null;try{t=await scanFrame(v)}catch(e){}
+    if(id!==sid)return;
+    if(t&&!(t===lastCode&&now-lastCodeT<4000)){
+      lastCode=t;lastCodeT=now;paused=true;$("scanbox").classList.add("ok");$("hint").textContent="Checking...";beep();
+      await verify(t);
+      if(id===sid&&paused&&!$("nextBtn"))setTimeout(()=>{if(id===sid&&paused&&!$("nextBtn"))resumeScan()},2200);
+    }
   }
-  if(stream)raf=requestAnimationFrame(loop);
+  if(id===sid&&stream)raf=requestAnimationFrame(()=>loop(id));
 }
 async function scanPhoto(f){
   const cm=$("cmsg");cm.textContent="";if(!f)return;const img=new Image(),url=URL.createObjectURL(f);
@@ -324,6 +376,9 @@ async function scanPhoto(f){
     const t=await readQR(c);if(t)verify(t);else cm.textContent="No QR found in that photo. Move closer, keep it flat and in focus, then retake."}
   catch(e){cm.textContent="Could not read that photo."}finally{URL.revokeObjectURL(url);$("photo").value=""}
 }
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){if(stream){resumeOnShow=true;stopCam()}}
+  else if(resumeOnShow){resumeOnShow=false;if(sess()&&!$("vScan").classList.contains("hide"))startCam()}});
 async function verify(code){
   const u=sess(),out=$("result");code=String(code).trim().toUpperCase();$("manual").value="";
   if(!u||!u.scan){out.innerHTML="";return}
@@ -337,16 +392,123 @@ async function verify(code){
     box(dup?"bad":"okk",(dup?`<strong class="er">ALREADY USED at ${esc(fmt(s.at))} by ${esc(s.by||"")}</strong>`:`<strong class="ok">VALID. Entry registered ${esc(fmt(s.at))}</strong>`)+
       "<dl style='margin:0'>"+f("Name",p.name)+f("Date of birth",p.dob)+f("Phone",p.phone)+f("Issued by",p.issuedBy)+f("Issued on",fmt(p.issuedAt))+"</dl>"+
       `<button style="margin-top:12px" id="nextBtn">Scan next</button>`);
-    $("nextBtn").onclick=()=>{out.innerHTML="";startCam()};
+    $("nextBtn").onclick=resumeScan;
   }catch(e){box("bad","<strong class='er'>Lookup failed. "+esc(why(e))+"</strong>")}
   finally{busy=false}
 }
 
+/* export */
+function csvCell(v){let t=String(v==null?"":v);if(/^[=+\-@\t\r]/.test(t))t="'"+t;return '"'+t.replace(/"/g,'""')+'"'}
+function exportCsv(kind){
+  const u=sess();if(!u||!(u.admin||u.exp)){alert("You do not have permission to export the list.");return}
+  if(!EXP)return;const {own,Sc}=EXP;
+  const rows=own.filter(p=>kind==="all"||(kind==="in")===!!Sc[p.id]).sort((a,b)=>a.name.localeCompare(b.name));
+  if(!rows.length){alert("Nothing to export in this list.");return}
+  const H=["No.","Name","Phone","Date of birth","Pass no.","Issued by","Issued at","Status","Entered at","Verified by"];
+  const out=[H.map(csvCell).join(",")];
+  rows.forEach((p,i)=>{const e=Sc[p.id];out.push([i+1,csvCell(p.name),'="'+String(p.phone||"").replace(/[^\d+]/g,"")+'"',csvCell(p.dob),csvCell(p.id.slice(-6)),csvCell(p.issuedById===ADMIN.id?"Admin":p.issuedBy),csvCell(fmt(p.issuedAt)),e?"Entered":"Remaining",e?csvCell(fmt(e.at)):"",e?csvCell(e.by||""):""].join(","))});
+  const blob=new Blob(["\uFEFF"+out.join("\r\n")],{type:"text/csv;charset=utf-8"}),a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download="bonfire-entries-"+(kind==="all"?"all":kind==="in"?"entered":"remaining")+"-"+new Date().toLocaleDateString("en-CA")+".csv";
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000)}
+/* pdf export */
+const SANS='Poppins,"Noto Sans Bengali","Nirmala UI","Segoe UI",sans-serif',SERIF='"Playfair Display",Georgia,serif',tcache=new Map();
+const clean=t=>String(t==null?"":t).replace(/[\u202f\u00a0]/g," "),nonLatin=s=>/[^\x00-\x7F]/.test(s);
+async function tImg(t,f,w,c){
+  const k=f+"|"+w+"|"+c+"|"+t;if(tcache.has(k))return tcache.get(k);
+  const px=64,F=`${w} ${px}px ${f}`,m=document.createElement("canvas").getContext("2d");m.font=F;
+  const W=Math.ceil(m.measureText(t).width)+8,H=Math.round(px*1.5),cv=document.createElement("canvas");cv.width=W;cv.height=H;
+  const x=cv.getContext("2d");x.font=F;x.fillStyle=c;x.textBaseline="middle";x.fillText(t,2,H/2+2);
+  const v={u:cv.toDataURL("image/png"),r:W/H};tcache.set(k,v);return v}
+/* left-aligned text at baseline y; non-latin text (Bengali etc.) is drawn as an image so it never breaks */
+async function put(d,t,x,y,maxW,o){
+  t=clean(t);
+  if(nonLatin(t)){const im=await tImg(t,o.serif?SERIF:SANS,o.bold?"600":"500",o.hex),em=o.size*.3528;let h=em*1.6,w=h*im.r;if(w>maxW){h=h*maxW/w;w=maxW}
+    d.addImage(im.u,"PNG",x,y-em*.3-h/2,w,h);return}
+  if(o.serif){const im=await tImg(t,SERIF,"700",o.hex),h=o.size*.3528*1.6;d.addImage(im.u,"PNG",x,y-o.size*.3528*.3-h/2,h*im.r,h);return}
+  d.setFont("helvetica",o.bold?"bold":"normal");d.setFontSize(o.size);d.setTextColor(...o.col);
+  let s=t;if(d.getTextWidth(s)>maxW){while(s.length>1&&d.getTextWidth(s+"...")>maxW)s=s.slice(0,-1);s+="..."}d.text(s,x,y)}
+const GS=[[0,[255,182,39]],[.3,[247,147,30]],[.65,[232,69,60]],[1,[181,23,158]]];
+function gradAt(t){for(let i=1;i<GS.length;i++)if(t<=GS[i][0]){const[a,A]=GS[i-1],[b,B]=GS[i],k=(t-a)/(b-a);return A.map((v,j)=>Math.round(v+(B[j]-v)*k))}return GS[3][1]}
+function gradBar(d,x,y,w,h){const n=70,sw=w/n;for(let i=0;i<n;i++){d.setFillColor(...gradAt(i/(n-1)));d.rect(x+i*sw,y,sw+.35,h,"F")}}
+async function exportPdf(kind,btn){
+  const u=sess();if(!u||!EXP)return;
+  if(!(u.admin||u.exp)){alert("You do not have permission to export the list.");return}
+  const {own,Sc,full}=EXP;
+  const rows=own.filter(p=>kind==="all"||(kind==="in")===!!Sc[p.id]).sort((a,b)=>a.name.localeCompare(b.name));
+  if(!rows.length){alert("Nothing to export in this list.");return}
+  const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent="Preparing..."}
+  try{
+    try{await Promise.all([document.fonts.load('700 60px "Playfair Display"'),document.fonts.load("600 60px Poppins"),document.fonts.load("500 60px Poppins")])}catch(e){}
+    const {jsPDF}=window.jspdf,d=new jsPDF({unit:"mm",format:"a4"}),PW=210,PH=297,M=12,CW=PW-M*2;
+    const now=new Date(),dStr=now.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}),tStr=clean(now.toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit",hour12:true})),stamp=dStr+", "+tStr;
+    const INK=[42,24,16],MUT=[138,111,95],BD=[242,226,207],CREAM=[255,246,233];
+    const label={all:"All passes",in:"Entered passes",out:"Remaining passes (not yet entered)"}[kind];
+    const scope=full?"All staff":"Issued by "+u.name;
+    const tot=own.length,en=own.filter(p=>Sc[p.id]).length,rem=tot-en,rate=tot?Math.round(en*100/tot):0;
+    /* page-1 header */
+    gradBar(d,0,0,PW,40);
+    d.setFillColor(255,255,255);d.roundedRect(M,7,26,26,4.5,4.5,"F");
+    const lw=21,lh=lw*LH/LW;d.addImage(LOGO,"PNG",M+2.5,7+(26-lh)/2,lw,lh);
+    await put(d,"Gate Pass Report",M+32,18.5,100,{serif:1,size:25,hex:"#ffffff",col:[255,255,255]});
+    await put(d,label,M+32,26.2,92,{size:10,bold:1,col:[255,255,255],hex:"#ffffff"});
+    await put(d,"Bonfire Gate Pass System  |  "+scope,M+32,31.6,96,{size:7.5,col:[255,236,214],hex:"#ffecd6"});
+    const rx=146;
+    d.setFont("helvetica","bold");d.setFontSize(6.5);d.setTextColor(255,236,214);d.text("EXPORTED ON",rx,12.5,{charSpace:.8});
+    d.setFontSize(13);d.setTextColor(255,255,255);d.text(dStr,rx,19.5);
+    d.setFontSize(10);d.text(tStr,rx,25.5);
+    await put(d,"By "+u.name,rx,31.6,52,{size:7.5,col:[255,236,214],hex:"#ffecd6"});
+    /* summary tiles */
+    const tiles=[["TOTAL PASSES",tot,INK,"#2a1810"],["ENTERED",en,[31,157,85],"#1f9d55"],["REMAINING",rem,[247,147,30],"#F7931E"],["ENTRY RATE",rate+"%",[181,23,158],"#B5179E"]];
+    const tw=(CW-12)/4;let y=47;
+    tiles.forEach((t,i)=>{const x=M+i*(tw+4);d.setFillColor(...CREAM);d.setDrawColor(...BD);d.setLineWidth(.3);d.roundedRect(x,y,tw,19,3,3,"FD");
+      d.setFillColor(...t[2]);d.roundedRect(x,y+3.5,1.3,12,.65,.65,"F");
+      d.setFont("helvetica","bold");d.setFontSize(17);d.setTextColor(...t[2]);d.text(String(t[1]),x+5,y+10.8);
+      d.setFontSize(6.3);d.setTextColor(...MUT);d.text(t[0],x+5,y+15.6,{charSpace:.5})});
+    y=73;d.setFont("helvetica","normal");d.setFontSize(8);d.setTextColor(...MUT);
+    d.text("Showing "+rows.length+" of "+tot+" passes, sorted by name",M,y);y+=3.5;
+    /* table */
+    const C=[["#",7],["NAME",38],["PHONE",24],["PASS NO.",18],["ISSUED BY",21],["ISSUED AT",28],["STATUS",18],["ENTERED AT",32]],RH=10,HH=8;
+    const X=[];C.reduce((a,c,i)=>(X[i]=a,a+c[1]),M);
+    const head=()=>{d.setFillColor(...INK);d.roundedRect(M,y,CW,HH,2,2,"F");d.setFont("helvetica","bold");d.setFontSize(6.5);d.setTextColor(255,255,255);
+      C.forEach((c,i)=>d.text(c[0],X[i]+(i?1.5:2.2),y+5.1,{charSpace:.4}));y+=HH};
+    const mini=()=>{gradBar(d,0,0,PW,13);d.setFillColor(255,255,255);d.roundedRect(M,2,9,9,2,2,"F");const l=6.6;d.addImage(LOGO,"PNG",M+1.2,2+(9-l*LH/LW)/2,l,l*LH/LW);
+      d.setFont("helvetica","bold");d.setFontSize(9.5);d.setTextColor(255,255,255);d.text("Gate Pass Report  |  "+label,M+12,8);
+      d.setFont("helvetica","normal");d.setFontSize(7);d.text("Exported "+stamp,PW-M,8,{align:"right"});y=19};
+    head();
+    for(let i=0;i<rows.length;i++){
+      if(y+RH>PH-16){d.addPage();mini();head()}
+      const p=rows[i],e=Sc[p.id],by=p.issuedById===ADMIN.id?"Admin":p.issuedBy;
+      if(i%2===0){d.setFillColor(255,251,245);d.rect(M,y,CW,RH,"F")}
+      d.setDrawColor(...BD);d.setLineWidth(.15);d.line(M,y+RH,M+CW,y+RH);
+      const b=y+6;
+      await put(d,i+1,X[0]+2.2,b,C[0][1]-2,{size:7,col:MUT,hex:"#8a6f5f"});
+      await put(d,p.name,X[1]+1.5,b,C[1][1]-3,{size:8.5,bold:1,col:INK,hex:"#2a1810"});
+      await put(d,p.phone||"-",X[2]+1.5,b,C[2][1]-2.5,{size:7.5,col:INK,hex:"#2a1810"});
+      await put(d,p.id.slice(-6),X[3]+1.5,b,C[3][1]-2,{size:7.5,col:INK,hex:"#2a1810"});
+      await put(d,by,X[4]+1.5,b,C[4][1]-2.5,{size:7.5,col:INK,hex:"#2a1810"});
+      await put(d,fmt(p.issuedAt),X[5]+1.5,b,C[5][1]-2,{size:7,col:INK,hex:"#2a1810"});
+      d.setFillColor(...(e?[223,245,232]:[255,238,214]));d.roundedRect(X[6]+1.2,y+3,15,4,2,2,"F");
+      d.setFont("helvetica","bold");d.setFontSize(5.8);d.setTextColor(...(e?[31,157,85]:[178,91,0]));d.text(e?"ENTERED":"WAITING",X[6]+8.7,y+5.85,{align:"center",charSpace:.2});
+      if(e){await put(d,fmt(e.at),X[7]+1.5,y+4.5,C[7][1]-2,{size:7,col:INK,hex:"#2a1810"});
+        await put(d,"by "+(e.by||"staff"),X[7]+1.5,y+8,C[7][1]-2,{size:6.3,col:MUT,hex:"#8a6f5f"})}
+      else await put(d,"-",X[7]+1.5,b,C[7][1]-2,{size:7.5,col:MUT,hex:"#8a6f5f"});
+      y+=RH}
+    /* footer on every page */
+    const N=d.getNumberOfPages();
+    for(let i=1;i<=N;i++){d.setPage(i);gradBar(d,0,PH-11,PW,1.2);
+      d.setFont("helvetica","normal");d.setFontSize(7);d.setTextColor(...MUT);
+      d.text("Bonfire Gate Pass  |  Exported "+stamp+"  |  Confidential, for authorised staff only",M,PH-5.2);
+      d.text("Page "+i+" of "+N,PW-M,PH-5.2,{align:"right"})}
+    d.save("bonfire-gate-pass-report-"+(kind==="all"?"all":kind==="in"?"entered":"remaining")+"-"+now.toLocaleDateString("en-CA")+".pdf");
+  }catch(err){alert("Could not create the PDF. "+(err&&err.message||err))}
+  finally{if(btn){btn.disabled=false;btn.textContent=old}}
+}
+
 /* entry list */
-let drawE=null;
+let drawE=null,EXP=null;
 function renderEntries(){
   unsub();const u=sess(),bi=$("eIn"),bo=$("eOut");let P={},Sc={};bi.innerHTML=bo.innerHTML='<div class="empty">Loading...</div>';
-  const all=u.admin||u.scan,CAP=300;
+  const full=u.admin||u.viewAll,all=full||u.scan,CAP=300;$("expBar").classList.toggle("hide",!(u.admin||u.exp));
   drawE=()=>{
     const q=$("eq").value.trim().toLowerCase();
     const ps=Object.entries(P).map(([id,v])=>({id,...v})).filter(p=>all||p.issuedById===u.id);
@@ -356,6 +518,8 @@ function renderEntries(){
     const en=ps.filter(p=>Sc[p.id]).length;
     $("eStats").innerHTML=`<span class="chip">Total ${ps.length}</span><span class="chip m">Entered ${en}</span><span class="chip">Remaining ${ps.length-en}</span><span class="chip">Live</span>`;
     $("cEn").textContent=inn.length;$("cNo").textContent=out.length;
+    const own=ps.filter(p=>full||p.issuedById===u.id);EXP={own,Sc,full};const oi=own.filter(p=>Sc[p.id]).length;
+    $("xAll").textContent="All ("+own.length+")";$("xIn").textContent="Entered ("+oi+")";$("xOut").textContent="Remaining ("+(own.length-oi)+")";
     const row=(p,e)=>`<div class="pc"><div class="av">${esc([...p.name][0].toUpperCase())}</div><div class="pi"><b>${esc(p.name)}</b><small>${e?"Entered "+esc(fmt(Sc[p.id].at))+" | verified by "+esc(Sc[p.id].by||"staff"):"Issued "+esc(fmt(p.issuedAt))+" | by "+esc(p.issuedById===ADMIN.id?"Admin":p.issuedBy)}</small></div><span class="st ${e?"u":""}">${e?"Entered":"Waiting"}</span></div>`;
     const list=(a,e,none)=>a.length?a.slice(0,CAP).map(p=>row(p,e)).join("")+(a.length>CAP?`<div class="empty">Showing first ${CAP}. Use search to narrow down.</div>`:""):`<div class="empty">${q?"No match.":ps.length?none:"No passes issued yet."}</div>`;
     bi.innerHTML=list(inn,1,"Nobody has entered yet.");bo.innerHTML=list(out,0,"Everyone has entered.");
@@ -374,7 +538,7 @@ async function photoData(f){const img=new Image(),url=URL.createObjectURL(f);
 async function loadProfile(){
   const u=sess(),m=$("prmsg");m.textContent="";if(!u)return;
   $("prId").textContent=u.id;$("prName").textContent=u.name;$("prPhone").textContent="-";
-  $("prAccess").textContent=u.admin?"Admin (full access)":[u.issue&&"Issue passes",u.scan&&"Scan passes"].filter(Boolean).join(" + ");
+  $("prAccess").textContent=u.admin?"Admin (full access)":[u.issue&&"Issue passes",u.scan&&"Scan passes",u.viewAll&&"View all",u.exp&&"Export list"].filter(Boolean).join(" + ");
   $("pwBox").classList.toggle("hide",!!u.admin);$("adminNote").classList.toggle("hide",!u.admin);$("must").classList.toggle("hide",!u.must);
   setAv(null);
   try{const [r,p]=await Promise.all([u.admin?null:store.get("users",u.id),store.get("profiles",u.id)]);
@@ -417,13 +581,13 @@ let lastCred="";
 async function renderUsers(){
   const b=$("ulist");b.innerHTML='<div class="empty">Loading...</div>';
   try{const us=await store.list("users");
-    b.innerHTML=us.length?us.map(r=>`<div class="pc"><div class="av">${esc([...(r.name||"?")][0].toUpperCase())}</div><div class="pi"><b>${esc(r.name)}</b><small>ID ${esc(r.id)} | ${esc(r.phone||"no phone")} | ${[r.issue&&"Issue",r.scan&&"Scan"].filter(Boolean).join(" + ")}</small></div><span class="st ${r.active?"u":"off"}">${r.active?"Active":"Disabled"}</span>
-      <div class="acts"><button class="g sm" data-a="i" data-i="${esc(r.id)}">${r.issue?"Remove":"Give"} issue</button><button class="g sm" data-a="s" data-i="${esc(r.id)}">${r.scan?"Remove":"Give"} scan</button><button class="g sm" data-a="t" data-i="${esc(r.id)}">${r.active?"Disable":"Enable"}</button><button class="g sm" data-a="p" data-i="${esc(r.id)}">Reset pw</button><button class="d sm" data-a="x" data-i="${esc(r.id)}">Delete</button></div></div>`).join(""):'<div class="empty">No staff users yet.</div>'}
+    b.innerHTML=us.length?us.map(r=>`<div class="pc"><div class="av">${esc([...(r.name||"?")][0].toUpperCase())}</div><div class="pi"><b>${esc(r.name)}</b><small>ID ${esc(r.id)} | ${esc(r.phone||"no phone")} | ${[r.issue&&"Issue",r.scan&&"Scan",r.viewAll&&"View all",r.exp&&"Export"].filter(Boolean).join(" + ")}</small></div><span class="st ${r.active?"u":"off"}">${r.active?"Active":"Disabled"}</span>
+      <div class="acts"><button class="g sm" data-a="i" data-i="${esc(r.id)}">${r.issue?"Remove":"Give"} issue</button><button class="g sm" data-a="s" data-i="${esc(r.id)}">${r.scan?"Remove":"Give"} scan</button><button class="g sm" data-a="v" data-i="${esc(r.id)}">${r.viewAll?"Remove":"Give"} view all</button><button class="g sm" data-a="e" data-i="${esc(r.id)}">${r.exp?"Remove":"Give"} export</button><button class="g sm" data-a="t" data-i="${esc(r.id)}">${r.active?"Disable":"Enable"}</button><button class="g sm" data-a="p" data-i="${esc(r.id)}">Reset pw</button><button class="d sm" data-a="x" data-i="${esc(r.id)}">Delete</button></div></div>`).join(""):'<div class="empty">No staff users yet.</div>'}
   catch(e){b.innerHTML='<div class="empty er">'+esc(why(e))+'</div>'}
 }
 async function addUser(){
   const u=sess(),m=$("umsg");m.className="msg er";$("cred").classList.add("hide");if(!u||!u.admin)return;
-  const name=$("nName").value.trim(),ph=$("nPh").value.replace(/[\s-]/g,"").replace(/^\+/,""),is=$("nIssue").checked,sc=$("nScan").checked;
+  const name=$("nName").value.trim(),ph=$("nPh").value.replace(/[\s-]/g,"").replace(/^\+/,""),is=$("nIssue").checked,sc=$("nScan").checked,va=$("nView").checked,ex=$("nExport").checked;
   if(name.length<2){m.textContent="Name is required.";return}
   if(!/^\d{10,15}$/.test(ph)){m.textContent="Enter a valid phone number (10 to 15 digits).";return}
   if(!is&&!sc){m.textContent="Choose at least one access.";return}
@@ -432,11 +596,11 @@ async function addUser(){
     const us=await store.list("users");if(us.some(x=>x.phone===ph)){m.textContent="A user with this phone number already exists.";return}
     let id="";for(let i=0;i<8&&!id;i++){const c="BF"+String(100000+crypto.getRandomValues(new Uint32Array(1))[0]%900000);if(c!==ADMIN.id&&!us.some(x=>x.id===c))id=c}
     if(!id){m.textContent="Could not generate an ID. Try again.";return}
-    const salt=rnd();await store.put("users",id,{name,phone:ph,issue:is,scan:sc,active:true,mustChange:true,salt,hash:await kdf(ph,salt),created:new Date().toISOString()});
+    const salt=rnd();await store.put("users",id,{name,phone:ph,issue:is,scan:sc,viewAll:va,exp:ex,active:true,mustChange:true,salt,hash:await kdf(ph,salt),created:new Date().toISOString()});
     lastCred="Bonfire Gate Pass login\nName: "+name+"\nLogin ID: "+id+"\nPassword: "+ph+" (your phone number, change it after first login)";
     m.className="msg ok";m.textContent="Login created.";
     $("cred").innerHTML=`<b>Login for ${esc(name)}</b><div>Login ID: <code>${esc(id)}</code></div><div>Password: <code>${esc(ph)}</code></div><div class="s" style="margin:6px 0">The password is their phone number. They should change it after first login.</div><button class="g sm" id="copyCred">Copy details</button>`;
-    $("cred").classList.remove("hide");$("nName").value="";$("nPh").value="";renderUsers();
+    $("cred").classList.remove("hide");$("nName").value="";$("nPh").value="";$("nView").checked=false;$("nExport").checked=false;renderUsers();
   }catch(e){m.textContent="Could not save. "+why(e)}finally{$("addUser").disabled=false}
 }
 async function userAct(e){
@@ -444,6 +608,8 @@ async function userAct(e){
   const id=b.dataset.i,a=b.dataset.a;
   try{const r=await store.get("users",id);if(!r)return;
     if(a==="i"||a==="s"){const k=a==="i"?"issue":"scan",o=a==="i"?"scan":"issue";if(r[k]&&!r[o]){alert("A user needs at least one access. Disable or delete instead.");return}r[k]=!r[k]}
+    if(a==="v")r.viewAll=!r.viewAll;
+    if(a==="e")r.exp=!r.exp;
     if(a==="t")r.active=!r.active;
     if(a==="x"){if(!confirm("Delete "+id+"?"))return;await store.del("users",id);try{await store.del("profiles",id)}catch(e){}return renderUsers()}
     if(a==="p"){if(!r.phone){alert("No phone number on record for this user.");return}if(!confirm("Reset the password to their phone number? They must change it after login."))return;r.salt=rnd();r.hash=await kdf(r.phone,r.salt);r.mustChange=true}
@@ -459,7 +625,7 @@ $("plist").onclick=async e=>{
   if(dl){if(!u||!u.admin)return;const id=dl.dataset.d;if(!confirm("Delete this pass? Its QR will stop working and its entry record is removed."))return;
     try{await store.del("passes",id);await store.del("scans",id)}catch(err){alert("Could not delete. "+why(err))}return}
   const b=e.target.closest("button[data-i]");if(b){const p=window._ps[+b.dataset.i];download(p.id,p)}};
-$("camBtn").onclick=startCam;$("photoBtn").onclick=()=>$("photo").click();$("photo").onchange=e=>scanPhoto(e.target.files[0]);$("verBtn").onclick=()=>verify($("manual").value);$("manual").addEventListener("keydown",e=>{if(e.key==="Enter")verify($("manual").value)});
+$("camBtn").onclick=()=>stream?stopCam():startCam();$("torchBtn").onclick=toggleTorch;$("expBar").onclick=e=>{const b=e.target.closest("button[data-x],button[data-c]");if(!b)return;if(b.dataset.x)exportPdf(b.dataset.x,b);else exportCsv(b.dataset.c)};$("photoBtn").onclick=()=>$("photo").click();$("photo").onchange=e=>scanPhoto(e.target.files[0]);$("verBtn").onclick=()=>verify($("manual").value);$("manual").addEventListener("keydown",e=>{if(e.key==="Enter")verify($("manual").value)});
 $("eq").oninput=()=>drawE&&drawE();$("pq").oninput=()=>drawP&&drawP();
 $("pfl").onclick=e=>{const b=e.target.closest("button[data-f]");if(!b)return;pFil=b.dataset.f;document.querySelectorAll("#pfl .fc").forEach(x=>x.classList.toggle("on",x===b));drawP&&drawP()};$("addUser").onclick=addUser;$("hAv").onclick=()=>tab("Profile");$("changePhoto").onclick=()=>$("photoUp").click();$("photoUp").onchange=e=>uploadPhoto(e.target.files[0]);$("saveProf").onclick=saveProfile;$("savePw").onclick=changePw;
 $("cred").onclick=async e=>{if(!e.target.closest("#copyCred"))return;try{await navigator.clipboard.writeText(lastCred);e.target.textContent="Copied"}catch(x){prompt("Copy these details:",lastCred)}};$("ulist").onclick=userAct;
