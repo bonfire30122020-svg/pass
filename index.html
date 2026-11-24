@@ -321,7 +321,7 @@ function stopCam(){
   if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}trk=null;
   $("scanbox").classList.add("hide");$("scanbox").classList.remove("ok");$("torchBtn").classList.add("hide");$("torchBtn").textContent="Torch on";$("camBtn").textContent="Start camera"}
 function resumeScan(){
-  $("result").innerHTML="";$("scanbox").classList.remove("ok");$("hint").textContent="Point the camera at the QR code";paused=false;
+  $("result").innerHTML="";$("scanbox").classList.remove("ok");$("hint").textContent="Point the camera at the QR code";paused=false;lastCode="";
   if(!stream)startCam()}
 async function toggleTorch(){
   if(!trk)return;torchOn=!torchOn;
@@ -329,6 +329,7 @@ async function toggleTorch(){
 async function startCam(){
   const cm=$("cmsg");cm.textContent="";
   if(stream){resumeScan();return}
+  $("result").innerHTML="";
   if(!window.isSecureContext||(location.protocol!=="https:"&&location.hostname!=="localhost")||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){cm.textContent="Live camera is blocked because this page was opened from a file or app, not an https link. Host the file online, or tap \"Scan using phone camera app\" now.";return}
   const id=++sid;
   try{
@@ -363,7 +364,6 @@ async function loop(id){
     if(t&&!(t===lastCode&&now-lastCodeT<4000)){
       lastCode=t;lastCodeT=now;paused=true;$("scanbox").classList.add("ok");$("hint").textContent="Checking...";beep();
       await verify(t);
-      if(id===sid&&paused&&!$("nextBtn"))setTimeout(()=>{if(id===sid&&paused&&!$("nextBtn"))resumeScan()},2200);
     }
   }
   if(id===sid&&stream)raf=requestAnimationFrame(()=>loop(id));
@@ -383,16 +383,14 @@ async function verify(code){
   const u=sess(),out=$("result");code=String(code).trim().toUpperCase();$("manual").value="";
   if(!u||!u.scan){out.innerHTML="";return}
   if(busy)return;busy=true;out.innerHTML="";
-  const box=(cls,h)=>{out.innerHTML=`<div class="res ${cls}">${h}</div>`};
+  const box=(cls,h)=>{out.innerHTML=`<div class="res ${cls}">${h}<button style="margin-top:12px" id="nextBtn">Scan next</button></div>`;$("nextBtn").onclick=resumeScan;stopCam()};
   try{
     const p=TOK.test(code)?await store.get("passes",code):null;
     if(!p){box("bad","<strong class='er'>INVALID PASS</strong>");return}
     const rr=await store.claim(code,{at:new Date().toISOString(),by:u.name,byId:u.id}),s=rr.val,dup=!rr.first;
     const f=(k,v)=>`<dt>${k}</dt><dd>${esc(v)}</dd>`;
     box(dup?"bad":"okk",(dup?`<strong class="er">ALREADY USED at ${esc(fmt(s.at))} by ${esc(s.by||"")}</strong>`:`<strong class="ok">VALID. Entry registered ${esc(fmt(s.at))}</strong>`)+
-      "<dl style='margin:0'>"+f("Name",p.name)+f("Date of birth",p.dob)+f("Phone",p.phone)+f("Issued by",p.issuedBy)+f("Issued on",fmt(p.issuedAt))+"</dl>"+
-      `<button style="margin-top:12px" id="nextBtn">Scan next</button>`);
-    $("nextBtn").onclick=resumeScan;
+      "<dl style='margin:0'>"+f("Name",p.name)+f("Date of birth",p.dob)+f("Phone",p.phone)+f("Issued by",p.issuedBy)+f("Issued on",fmt(p.issuedAt))+"</dl>");
   }catch(e){box("bad","<strong class='er'>Lookup failed. "+esc(why(e))+"</strong>")}
   finally{busy=false}
 }
